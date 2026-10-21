@@ -1,0 +1,89 @@
+name: craft
+
+# Builds the craft image every day and pushes it when the PPA shipped a new
+# PHP release (new x.y.z tag), every Monday for Ubuntu updates, on a push
+# to main and when started by hand.
+on:
+  push:
+    branches: [main]
+    paths: ["craft/**", ".github/workflows/craft.yml"]
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Push even if the PHP version did not change
+        type: boolean
+        default: true
+
+env:
+  IMAGE: docker.io/crelte/craft
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: Main Deployments
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - php: "8.4"
+            min: "8.4.27"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build amd64 for the version check
+        uses: docker/build-push-action@v6
+        with:
+          context: craft
+          pull: true
+          load: true
+          platforms: linux/amd64
+          build-args: |
+            php_version=${{ matrix.php }}
+            php_min_version=${{ matrix.min }}
+          tags: local/craft:${{ matrix.php }}
+          cache-to: type=gha,mode=max,scope=php${{ matrix.php }}
+
+      - name: Decide whether to push
+        id: check
+        run: |
+          version=$(docker run --rm --entrypoint php local/craft:${{ matrix.php }} -r 'echo PHP_VERSION;')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          push=false
+          if [ "${{ github.event_name }}" = push ] \
+            || [ "${{ github.event_name }}" = workflow_dispatch -a "${{ inputs.force }}" = true ] \
+            || [ "$(date -u +%u)" = 1 ] \
+            || ! docker manifest inspect "$IMAGE:$version" > /dev/null 2>&1; then
+            push=true
+          fi
+          echo "push=$push" >> "$GITHUB_OUTPUT"
+          echo "PHP $version, push: $push" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build and push amd64 + arm64
+        if: steps.check.outputs.push == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: craft
+          pull: true
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            php_version=${{ matrix.php }}
+            php_min_version=${{ matrix.min }}
+          tags: |
+            ${{ env.IMAGE }}:${{ matrix.php }}
+            ${{ env.IMAGE }}:${{ steps.check.outputs.version }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.check.outputs.version }}
+          cache-from: type=gha,scope=php${{ matrix.php }}
