@@ -75,7 +75,8 @@ jobs:
           context: craft
           pull: true
           push: true
-          platforms: linux/amd64,linux/arm64
+          # arm64 back once packages.sury.org has the fixed PHP for it
+          platforms: linux/amd64
           build-args: |
             php_version=${{ matrix.php }}
             php_min_version=${{ matrix.min }}

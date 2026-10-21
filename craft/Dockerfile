@@ -52,14 +52,19 @@ RUN mkdir -p /app && chown -R appuser:appgroup /app
 RUN export DEBIAN_FRONTEND=noninteractive \
     && echo 'Acquire::Retries "10";' > /etc/apt/apt.conf.d/80-retries \
     && apt update -y \
-    && apt install -y -q software-properties-common \
-    && add-apt-repository ppa:ondrej/php \
+    && apt install -y -q software-properties-common ca-certificates curl \
+    && curl -fsSLo /tmp/debsuryorg-archive-keyring.deb https://packages.sury.org/debsuryorg-archive-keyring.deb \
+    && dpkg -i /tmp/debsuryorg-archive-keyring.deb \
+    && rm /tmp/debsuryorg-archive-keyring.deb \
+    && echo "deb [signed-by=/usr/share/keyrings/debsuryorg-archive-keyring.gpg] https://packages.sury.org/php/ noble main" \
+        > /etc/apt/sources.list.d/php.list \
     && apt update -y  \
     && apt install -y \
         curl \
         unzip \
         nginx \
         supervisor \
+        libheif-plugin-libde265 \
         php${php_version}-bcmath \
         php${php_version}-cli \
         php${php_version}-common \
@@ -103,9 +108,10 @@ WORKDIR /app
 USER appuser
 
 # check the server configuration to make sure it can run Craft CMS
-# (a pinned release instead of piping HEAD/check.sh into bash)
-ARG server_check_version=6.0.0
-ARG server_check_sha256=815ed635322760d1bb8de0c3fedbcd30f2aeb678d83287913f6f94d86369dfef
+# (a pinned release instead of piping HEAD/check.sh into bash; 5.x is the
+# check for Craft 5, 6.x requires PHP 8.5)
+ARG server_check_version=5.1.0
+ARG server_check_sha256=0eaa1ff47c10c12a98f45d5c53f684a5c40162a004225013289cb519d5ebb3d6
 RUN mkdir /tmp/server-check \
     && curl -fsSL -o /tmp/server-check/check.tar.gz \
         https://github.com/craftcms/server-check/releases/download/${server_check_version}/craftcms-server-check.tar.gz \
